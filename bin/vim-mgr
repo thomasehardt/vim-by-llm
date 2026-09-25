@@ -1,0 +1,316 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+INSTALL_DIR="${VIM_MGR_DIR:-$HOME/.local/share/vim-mgr}"
+PLUG_URL="https://raw.githubusercontent.com/junegunn/vim-plug/master/plug.vim"
+PLUG_FILE="$HOME/.vim/autoload/plug.vim"
+
+usage() {
+    cat <<EOF
+vim-mgr - Manage your vim-by-llm setup
+
+Commands:
+  install          Install config, backing up an existing ~/.vimrc
+  update           Fetch latest config from GitHub and install new plugins
+  edit [local]     Open the vimrc (or ~/.vimrc.local) in your \$EDITOR
+  status           Check the status of your installation
+  doctor           Check Vim features and optional tools
+  plugins [cmd]    Manage plugins: install (default), update, clean
+  cheatsheet       Show the keybinding cheatsheet
+  ask <query>      Ask an LLM a Vim-related question
+  restore          Put back the ~/.vimrc from the most recent backup
+EOF
+}
+
+say() { echo "=> $*"; }
+
+is_linked() {
+    [ "$(readlink "$HOME/.vimrc" 2>/dev/null || true)" = "$INSTALL_DIR/vimrc" ]
+}
+
+# Run an ex command against the installed config with no UI.
+vim_headless() {
+    vim -E -s -u "$HOME/.vimrc" -i NONE "$@" -c 'qa!' </dev/null >/dev/null 2>&1 || true
+}
+
+install_vim_plug() {
+    if [ -f "$PLUG_FILE" ]; then
+        return
+    fi
+    say "Installing vim-plug..."
+    mkdir -p "$(dirname "$PLUG_FILE")"
+    if ! curl -fsSLo "$PLUG_FILE" "$PLUG_URL"; then
+        rm -f "$PLUG_FILE"
+        echo "   Could not download vim-plug. Vim will still work, without plugins."
+        echo "   Retry later with: vim-mgr plugins"
+    fi
+}
+
+cmd_plugins() {
+    local action="${1:-install}"
+    if [ ! -f "$PLUG_FILE" ]; then
+        install_vim_plug
+        [ -f "$PLUG_FILE" ] || exit 1
+    fi
+    case "$action" in
+        install) say "Installing plugins..."; vim_headless -c 'PlugInstall --sync' ;;
+        update)  say "Updating plugins..."; vim_headless -c 'PlugUpgrade' -c 'PlugUpdate --sync' ;;
+        clean)   say "Removing plugins no longer listed..."; vim_headless -c 'PlugClean!' ;;
+        *)       echo "Unknown plugins command: $action (use install, update or clean)"; exit 1 ;;
+    esac
+    local count=0
+    [ -d "$HOME/.vim/plugged" ] && count=$(find "$HOME/.vim/plugged" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+    say "Done. $count plugins in ~/.vim/plugged"
+}
+
+write_local_example() {
+    cat <<'EOF' > "$HOME/.vimrc.local.example"
+" ~/.vimrc.local
+" This file is for your machine-specific Vim overrides. It is sourced at the
+" end of the vimrc and will never be overwritten by 'vim-mgr update'.
+" To add plugins, put Plug lines in ~/.vimrc.plugins.local, then run
+" 'vim-mgr plugins'.
+
+" ==============================================================================
+" Configuration Examples (Uncomment to use)
+" ==============================================================================
+
+" Use a different colorscheme (dichromatic is installed for colorblind users).
+" let g:vim_mgr_colorscheme = 'dichromatic'
+" let g:lightline.colorscheme = 'one'
+
+" Indent with 2 spaces everywhere.
+" set tabstop=2 shiftwidth=2 softtabstop=2
+
+" Don't keep the cursor 15 lines away from the edge.
+" set scrolloff=5
+
+" Use the system clipboard for every yank and paste (needs +clipboard).
+" set clipboard=unnamedplus
+
+" ------------------------------------------------------------------------------
+" LLM Integration (:Ask, <leader>a, vim-mgr ask)
+" ------------------------------------------------------------------------------
+
+" The CLI used for :Ask. If unset, it auto-detects 'claude -p' or 'agy -p'.
+" The shell environment variable VIM_MGR_LLM_CMD works too, and is also what
+" 'vim-mgr ask' reads.
+" let g:vim_mgr_llm_cmd = 'ollama run qwen3:8b'
+" let g:vim_mgr_llm_cmd = 'claude -p'
+
+" The prompt template. Must include {{query}} where the question should go.
+" let g:vim_mgr_llm_prompt_template = 'You are a Vim expert. Question: {{query}}'
+EOF
+}
+
+cmd_install() {
+    say "Installing vim configuration..."
+    if [ ! -f "$INSTALL_DIR/vimrc" ]; then
+        echo "Error: $INSTALL_DIR/vimrc not found. Run install.sh first."
+        exit 1
+    fi
+
+    if { [ -e "$HOME/.vimrc" ] || [ -L "$HOME/.vimrc" ]; } && ! is_linked; then
+        local backup_dir
+        backup_dir="$HOME/.vim-backup-$(date +%Y%m%d_%H%M%S)"
+        say "Found existing ~/.vimrc. Backing it up to $backup_dir/"
+        mkdir -p "$backup_dir"
+        mv "$HOME/.vimrc" "$backup_dir/.vimrc"
+        # ~/.vim is left in place (swap files, old plugins); record what was there.
+        [ -d "$HOME/.vim" ] && ls -1 "$HOME/.vim" > "$backup_dir/dot-vim-contents.txt"
+    fi
+
+    say "Linking ~/.vimrc -> $INSTALL_DIR/vimrc"
+    ln -sfn "$INSTALL_DIR/vimrc" "$HOME/.vimrc"
+    mkdir -p "$HOME/.vim/tmp"
+
+    # Always refresh the example so it shows every available option.
+    write_local_example
+    if [ ! -f "$HOME/.vimrc.local" ]; then
+        cp "$HOME/.vimrc.local.example" "$HOME/.vimrc.local"
+    fi
+
+    install_vim_plug
+    if [ "${VIM_MGR_SKIP_PLUGINS:-0}" != "1" ] && [ -f "$PLUG_FILE" ]; then
+        cmd_plugins install
+    fi
+
+    say "Installation complete!"
+    say "Open vim and press Space ? for the cheatsheet. Use 'vim-mgr update' to pull future changes."
+}
+
+cmd_update() {
+    say "Updating vim-mgr repository..."
+    local old_commit new_commit
+    old_commit=$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null || true)
+    git -C "$INSTALL_DIR" pull
+    new_commit=$(git -C "$INSTALL_DIR" rev-parse HEAD 2>/dev/null || true)
+
+    # Re-run install so links and new plugins are in place.
+    cmd_install
+
+    if [ -n "$old_commit" ] && [ -n "$new_commit" ] && [ "$old_commit" != "$new_commit" ]; then
+        echo ""
+        say "Update successful! New changes:"
+        echo "────────────────────────────────────────"
+        git --no-pager -C "$INSTALL_DIR" log "${old_commit}..${new_commit}" --oneline --color=always
+        echo "────────────────────────────────────────"
+        echo "Restart Vim (or press Space r) to load them."
+    fi
+}
+
+cmd_edit() {
+    local file="$INSTALL_DIR/vimrc"
+    [ "${1:-}" = "local" ] && file="$HOME/.vimrc.local"
+    "${EDITOR:-vim}" "$file"
+}
+
+cmd_status() {
+    echo "vim-mgr installation status:"
+    echo "  Install Dir: $INSTALL_DIR"
+    if [ -d "$INSTALL_DIR/.git" ]; then
+        echo "  Current branch: $(git -C "$INSTALL_DIR" branch --show-current 2>/dev/null || echo 'unknown')"
+        echo "  Latest commit: $(git -C "$INSTALL_DIR" log -1 --format="%h - %s" 2>/dev/null || echo 'unknown')"
+    else
+        echo "  Status: Not cloned yet."
+    fi
+    if is_linked; then
+        echo "  Config Linked: Yes"
+    else
+        echo "  Config Linked: No (Run 'vim-mgr install')"
+    fi
+    if [ -f "$PLUG_FILE" ]; then
+        local count=0
+        [ -d "$HOME/.vim/plugged" ] && count=$(find "$HOME/.vim/plugged" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+        echo "  vim-plug: Installed ($count plugins)"
+    else
+        echo "  vim-plug: Missing (Run 'vim-mgr plugins')"
+    fi
+    if [ -f "$HOME/.vimrc.local" ]; then
+        echo "  Local overrides: ~/.vimrc.local"
+    fi
+}
+
+cmd_doctor() {
+    local ok="✓" bad="✗" opt="·"
+    if ! command -v vim >/dev/null 2>&1; then
+        echo "$bad vim is not installed"
+        exit 1
+    fi
+    local version features
+    version=$(vim --version | head -1)
+    features=$(vim --version)
+    echo "$ok $version"
+    for feature in popupwin terminal job timers clipboard; do
+        if grep -qE "\+$feature( |$)" <<<"$features"; then
+            echo "$ok +$feature"
+        elif [ "$feature" = "clipboard" ]; then
+            echo "$opt -clipboard (Space y falls back to scripts/clipboard.sh)"
+        else
+            echo "$bad -$feature (popups, scratch shell or :Ask will not work)"
+        fi
+    done
+    for tool in git curl fzf rg lazygit; do
+        if command -v "$tool" >/dev/null 2>&1; then
+            echo "$ok $tool"
+        else
+            case "$tool" in
+                git|curl) echo "$bad $tool (needed for install/update)" ;;
+                fzf)      echo "$opt $tool (optional; vim-plug downloads a copy)" ;;
+                rg)       echo "$opt $tool (optional; needed for Space s)" ;;
+                lazygit)  echo "$opt $tool (optional; needed for Space G)" ;;
+            esac
+        fi
+    done
+    local llm
+    llm=$(detect_llm_cmd || true)
+    if [ -n "$llm" ]; then
+        echo "$ok LLM command: $llm"
+    else
+        echo "$opt no LLM CLI (set VIM_MGR_LLM_CMD to enable :Ask)"
+    fi
+}
+
+cmd_cheatsheet() {
+    local file="$INSTALL_DIR/cheatsheet.md"
+    if command -v glow >/dev/null 2>&1; then
+        glow -p "$file"
+    elif command -v bat >/dev/null 2>&1; then
+        bat --style=plain --paging=always --language=markdown "$file"
+    else
+        less -R "$file"
+    fi
+}
+
+detect_llm_cmd() {
+    if [ -n "${VIM_MGR_LLM_CMD:-}" ]; then
+        echo "$VIM_MGR_LLM_CMD"
+    elif command -v claude >/dev/null 2>&1; then
+        echo "claude -p"
+    elif command -v agy >/dev/null 2>&1; then
+        echo "agy -p"
+    else
+        return 1
+    fi
+}
+
+cmd_ask() {
+    if [ $# -eq 0 ]; then
+        echo "Usage: vim-mgr ask <question>"
+        exit 1
+    fi
+    local query="$*" llm_cmd
+    if ! llm_cmd=$(detect_llm_cmd); then
+        echo "Error: No LLM CLI found (checked for 'claude' and 'agy')."
+        echo "Please set the VIM_MGR_LLM_CMD environment variable."
+        echo "Example: export VIM_MGR_LLM_CMD='ollama run llama3'"
+        exit 1
+    fi
+    local template="${VIM_MGR_LLM_PROMPT_TEMPLATE:-Answer this question about Vim briefly and accurately: {{query}}}"
+    local prompt="${template//\{\{query\}\}/$query}"
+    echo "🤖 Asking LLM ($llm_cmd)..."
+    # The command may contain arguments (e.g. 'ollama run llama3'), so eval it
+    # with the prompt kept inside a quoted variable.
+    eval "$llm_cmd \"\$prompt\"" </dev/null
+}
+
+cmd_restore() {
+    local latest
+    latest=$(ls -1d "$HOME"/.vim-backup-* 2>/dev/null | sort | tail -1 || true)
+    if [ -z "$latest" ] || [ ! -e "$latest/.vimrc" ]; then
+        echo "No backed-up ~/.vimrc found (looked for ~/.vim-backup-*/.vimrc)."
+        exit 1
+    fi
+    read -r -p "Restore $latest/.vimrc to ~/.vimrc? [y/N] " reply
+    if [[ ! ${reply:-} =~ ^[Yy]$ ]]; then
+        echo "Cancelled."
+        exit 0
+    fi
+    if is_linked; then
+        rm "$HOME/.vimrc"
+    elif [ -e "$HOME/.vimrc" ]; then
+        echo "~/.vimrc is not managed by vim-mgr; leaving it alone."
+        exit 1
+    fi
+    cp -p "$latest/.vimrc" "$HOME/.vimrc"
+    say "Restored. Your plugins in ~/.vim/plugged are untouched; run 'vim-mgr install' to switch back."
+}
+
+if [ $# -eq 0 ]; then
+    usage
+    exit 1
+fi
+
+case "$1" in
+    install)    cmd_install ;;
+    update)     cmd_update ;;
+    edit)       shift; cmd_edit "$@" ;;
+    status)     cmd_status ;;
+    doctor)     cmd_doctor ;;
+    plugins)    shift; cmd_plugins "$@" ;;
+    cheatsheet) cmd_cheatsheet ;;
+    ask)        shift; cmd_ask "$@" ;;
+    restore)    cmd_restore ;;
+    help|-h|--help) usage ;;
+    *)          usage; exit 1 ;;
+esac

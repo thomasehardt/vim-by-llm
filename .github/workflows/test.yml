@@ -1,0 +1,32 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install, then check keybindings (Docker)
+      run: bash tests/run-tests.sh
+
+  macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install dependencies
+      run: brew install vim
+    - name: Test Installation
+      run: |
+        export REPO_URL=$PWD
+        bash install.sh
+    - name: Verify Configuration
+      run: |
+        export PATH=$HOME/.local/bin:$PATH
+        vim-mgr status
+        vim-mgr doctor
+        bash tests/test-config.sh
