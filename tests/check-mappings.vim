@@ -37,6 +37,7 @@ call s:check('n', '<Space>a', ':Ask')
 call s:check('x', '<Space>a', 'vim_mgr#ask_visual')
 call s:check('n', '<Space>y', 'vim_mgr#yank_op')
 call s:check('x', '<Space>y', 'vim_mgr#yank_op')
+call s:check('i', '\fn', 'expand("%:t:r")')
 call s:check('t', '<C-Q>', 'vim_mgr#terminal_ctrl_q')
 
 call s:check_true('commands :Ask :Cheatsheet :Scratch :VimMgrMenu exist',

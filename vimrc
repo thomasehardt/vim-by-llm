@@ -60,6 +60,11 @@ if g:vim_mgr_has_plug
   Plug 'tpope/vim-repeat'                         " . works with the above
   Plug 'tpope/vim-sleuth'                         " detect indent per file
   Plug 'godlygeek/tabular'                        " :Tabularize /=
+  Plug 'tmsvg/pear-tree'                          " auto-close brackets and quotes
+
+  " Formatting
+  Plug 'countravioli/prettyxml.vim'               " :PrettyXML
+  Plug 'vim-scripts/jdaddy.vim'                   " gqaj formats the JSON under the cursor
 
   " Extra plugins for this machine only: put Plug lines in this file.
   if filereadable(expand('~/.vimrc.plugins.local'))
@@ -111,6 +116,7 @@ set scrolloff=15 sidescrolloff=5
 set nowrap
 set cursorline
 set splitright splitbelow       " new splits open where you'd expect
+set tabpagemax=100              " vim -p *.py can open more than 10 tabs
 set wildmenu wildmode=longest:full,full
 set wildignore+=*.o,*.pyc,*/.git/*,*/node_modules/*
 set list listchars=tab:»\ ,trail:·,nbsp:␣
@@ -231,6 +237,9 @@ vnoremap > >gv
 " Move selected lines up/down.
 vnoremap J :move '>+1<CR>gv=gv
 vnoremap K :move '<-2<CR>gv=gv
+
+" Insert the current filename (without extension), e.g. for class names.
+inoremap \fn <C-R>=expand("%:t:r")<CR>
 
 " Y yanks to end of line, like D and C.
 nnoremap Y y$

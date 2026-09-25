@@ -96,3 +96,7 @@ To keep the configuration clean and understandable, all major additions, keybind
 * **2026-09-25**:
   * **Decision**: Swap, undo and backup files go under `~/.vim/tmp/`, with persistent undo enabled.
   * **Reasoning**: Keeps project directories free of `.swp` files (the old vimrc already did this for swap files), and `u` keeps working after you close and reopen a file.
+
+* **2026-09-25**:
+  * **Decision**: Restored pear-tree (auto-close pairs), prettyxml, jdaddy, the `\fn` insert mapping and `tabpagemax=100` from the old vimrc.
+  * **Reasoning**: They were part of the old day-to-day workflow and were dropped by mistake in the first version.

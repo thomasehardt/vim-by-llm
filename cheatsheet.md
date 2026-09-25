@@ -60,6 +60,10 @@ Keys mirror the tmux config where they can: `|` `-` split, `z` zoom, `\` scratch
 | `<` / `>` (visual) | Indent, keeping the selection |
 | `Y` | Yank to end of line |
 | `:Tabularize /=` | Align on a character |
+| `\fn` (insert) | Insert the current filename, without extension |
+| `( [ { " '` (insert) | Closing pair is added automatically (pear-tree) |
+| `:PrettyXML` | Reformat the XML in this buffer |
+| `gqaj` | Reformat the JSON object under the cursor (jdaddy) |
 
 ## Clipboard
 
