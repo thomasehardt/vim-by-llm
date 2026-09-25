@@ -108,7 +108,7 @@ set undofile
 " ------------------------------------------------------------------------------
 " Display
 " ------------------------------------------------------------------------------
-set number relativenumber       " absolute on the cursor line, relative elsewhere
+set number                      " plain line numbers (Space tn toggles relative ones)
 set ruler showcmd
 set laststatus=2 noshowmode     " lightline shows the mode
 set signcolumn=yes              " gitgutter doesn't shift text left and right
